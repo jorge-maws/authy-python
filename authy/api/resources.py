@@ -3,6 +3,28 @@ import platform
 import six
 
 from authy import __version__, AuthyFormatException
+__version_info__ = ('2', '1', '4')
+__version__ = '.'.join(__version_info__)
+
+
+class AuthyException(Exception):
+    pass
+
+
+class AuthyFormatException(AuthyException):
+    pass
+
+
+class AuthyApiException(AuthyException):
+    def __init__(self, status, uri, msg=""):
+        self.uri = uri
+        self.status = status
+        self.msg = msg
+
+    def __str__(self):
+        return "HTTP ERROR %s: %s \n %s" % (self.status, self.msg, self.uri)
+
+
 try:
     from urllib import quote
 except ImportError:
@@ -19,7 +41,6 @@ except ImportError:
 
 
 class Resource(object):
-
     def __init__(self, api_uri, api_key):
         self.api_uri = api_uri
         self.api_key = api_key
@@ -62,9 +83,9 @@ class Resource(object):
     def __default_headers(self):
         platform_value = ""
         try:
-          platform_value = platform.platform(True)
+            platform_value = platform.platform(True)
         except:
-          platform_value = "unknown_platform"
+            platform_value = "unknown_platform"
 
         return {
             'User-Agent': "AuthyPython/{0} ({1}; Python {2})".format(
@@ -75,7 +96,6 @@ class Resource(object):
 
 
 class Instance(object):
-
     def __init__(self, resource, response):
         self.resource = resource
         self.response = response
@@ -93,10 +113,9 @@ class Instance(object):
             return {}
 
         errors = self.content
-
-        if(not isinstance(errors, dict)):
+        if (not isinstance(errors, dict)):
             errors = {"error": errors}  # convert to dict for consistency
-        elif('errors' in errors):
+        elif ('errors' in errors):
             errors = errors['errors']
 
         return errors
@@ -106,7 +125,6 @@ class Instance(object):
 
 
 class Sms(Instance):
-
     def ignored(self):
         try:
             self.content['ignored']
@@ -116,17 +134,15 @@ class Sms(Instance):
 
 
 class User(Instance):
-
     def __init__(self, resource, response):
         super(User, self).__init__(resource, response)
-        if(isinstance(self.content, dict) and 'user' in self.content):
+        if (isinstance(self.content, dict) and 'user' in self.content):
             self.id = self.content['user']['id']
         else:
             self.id = None
 
 
 class Users(Resource):
-
     def create(self, email, phone, country_code=1):
         data = {
             "user": {
@@ -157,7 +173,6 @@ class Users(Resource):
 
 
 class Token(Instance):
-
     def ok(self):
         if super(Token, self).ok():
             return '"token":"is valid"' in str(self.response.content)
@@ -165,7 +180,6 @@ class Token(Instance):
 
 
 class Tokens(Resource):
-
     def verify(self, device_id, token, options={}):
         self.__validate(token, device_id)
         if 'force' not in options:
@@ -196,7 +210,6 @@ class App(Instance):
 
 
 class Apps(Resource):
-
     def fetch(self):
         resp = self.get("/protected/json/app/details")
         return App(self, resp)
@@ -207,7 +220,6 @@ class Stats(Instance):
 
 
 class StatsResource(Resource):
-
     def fetch(self):
         resp = self.get("/protected/json/app/stats")
         return Stats(self, resp)
@@ -218,7 +230,6 @@ class Phone(Instance):
 
 
 class Phones(Resource):
-
     def verification_start(self, phone_number, country_code, via='sms', locale=None):
         options = {
             'phone_number': phone_number,
@@ -247,4 +258,38 @@ class Phones(Resource):
             'country_code': country_code
         }
         resp = self.get("/protected/json/phones/info", options)
-        return Phone(self, resp)
+        return Phone(resp)
+
+
+class oneTouchResponse(Instance):
+    def __init__(self, resource, response):
+        self.status_code = None;
+        super(oneTouchResponse, self).__init__(resource, response)
+        if (isinstance(self.content, dict) and 'approval_request' in self.content):
+            self.uuid = self.content['approval_request']['uuid']
+        else:
+            self.uuid = None
+
+    def getUuid(self):
+        return self.uuid
+
+
+class oneTouch(Resource):
+    def send_request(self, user_id, data={}):
+        """
+        :param user_id:
+        :param data:
+        :return oneTouch Json Object:
+        """
+        request_url = "/onetouch/json/users/{0}/approval_requests".format(user_id)
+        response = self.post(request_url, data)
+        return oneTouchResponse(self, response)
+
+    def status(self, uuid):
+        """
+        :param uuid:
+        :return Json Object:
+        """
+        request_url = "/onetouch/json/approval_requests/{0}".format(uuid)
+        response = self.get(request_url)
+        return (response.json())
